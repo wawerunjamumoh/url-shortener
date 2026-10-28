@@ -9,6 +9,7 @@ import {
   Redirect,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle,SkipThrottle } from '@nestjs/throttler';
 import { UrlsService } from './urls.service.js';
 import { CreateUrlDto } from './dto/create-url.dto.js';
 import { UpdateUrlDto } from './dto/update-url.dto.js';
@@ -17,7 +18,9 @@ import { UpdateUrlDto } from './dto/update-url.dto.js';
 export class UrlsController {
   constructor(private readonly urlsService: UrlsService) { }
 
+
   @Post('new')
+  @Throttle({default: {limit:5, ttl: 60_000}})
   async createShortUrl(@Body() createUrlDto: CreateUrlDto) {
     return this.urlsService.createShortCode(createUrlDto);
   }

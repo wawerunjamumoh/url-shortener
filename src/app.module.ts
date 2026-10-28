@@ -6,10 +6,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { HealthController } from './health/health.controller.js';
 import { HealthService } from './health/health.service.js';
+import { ThrottlerModule,ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
+    // CONFIG SERVICE
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // TYPEORM CONFIG
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
@@ -23,9 +28,22 @@ import { HealthService } from './health/health.service.js';
         synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
       }),
     }),
+    // RATE LIMITER
+    ThrottlerModule.forRoot([
+      { name: 'default',ttl:60_000,limit: 100},
+    ]),
+
+    // MODULES
     UrlsModule,
   ],
   controllers: [AppController, HealthController],
-  providers: [AppService, HealthService],
+  providers: [
+    AppService, 
+    HealthService,
+    { 
+      provide: APP_GUARD, 
+      useClass: ThrottlerGuard 
+    }
+  ],
 })
 export class AppModule { }

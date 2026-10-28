@@ -20,6 +20,8 @@ export class UrlsService {
     private readonly urlRepository: Repository<Url>,
 
   ) { }
+
+  // 1.CREATE SHORT URL
   async createShortCode(createUrlDto: CreateUrlDto,) {
 
     // 1.Check if provided url exists in the database
@@ -31,7 +33,7 @@ export class UrlsService {
       });
 
     if (existingUrl) {
-      return existingUrl;
+      return existingUrl.id;
     }
 
     // 2. Generate a unique short code
