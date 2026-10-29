@@ -13,6 +13,9 @@ import { TokenPair, TokenPayload } from './auth.types.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { User } from './entities/user.entity.js';
+import { RedisService } from '../../redis/redis.service.js';
+
+const USER_PROFILE_CACHE_TTL_SECONDS = 60;
 
 @Injectable()
 export class AuthService {
@@ -22,6 +25,7 @@ export class AuthService {
     constructor(
         @InjectRepository(User) private readonly users: Repository<User>,
         private readonly jwtService: JwtService,
+        private readonly redis: RedisService,
         config: ConfigService,
     ) {
         this.refreshTokenSecret = config.getOrThrow<string>('JWT_REFRESH_SECRET');
@@ -107,24 +111,41 @@ export class AuthService {
 
     async logout(userId: string): Promise<{ message: string }> {
         await this.users.update({ userId }, { refreshTokenHash: null });
+        await this.redis.delete(this.userProfileCacheKey(userId));
         return { message: 'Logged out' };
     }
 
     async getProfile(
         userId: string,
     ): Promise<Pick<User, 'userId' | 'firstName' | 'lastName' | 'email' | 'joinedAt'>> {
+        const cacheKey = this.userProfileCacheKey(userId);
+        // Cache only the public profile shape. The password and refresh-token
+        // hashes are excluded from both the DB default selection and this value.
+        const cached = await this.redis.getJson<
+            Pick<User, 'userId' | 'firstName' | 'lastName' | 'email' | 'joinedAt'>
+        >(cacheKey);
+        if (cached) return cached;
+
         const user = await this.users.findOne({ where: { userId } });
         if (!user) {
             throw new UnauthorizedException('Account no longer exists');
         }
 
-        return {
+        const profile = {
             userId: user.userId,
             firstName: user.firstName,
             lastName: user.lastName,
             email: user.email,
             joinedAt: user.joinedAt,
         };
+        // Keep user details short-lived so stale profile data has a small window.
+        await this.redis.setJson(cacheKey, profile, USER_PROFILE_CACHE_TTL_SECONDS);
+        return profile;
+    }
+
+    private userProfileCacheKey(userId: string): string {
+        // A per-user key makes targeted invalidation possible after profile edits.
+        return `users:profile:${userId}`;
     }
 
     private async issueTokenPair(user: User): Promise<TokenPair> {

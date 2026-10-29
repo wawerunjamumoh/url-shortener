@@ -4,6 +4,7 @@ import { AppService } from './app.service.js';
 import { UrlsModule } from './modules/urls/urls.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { RedisModule } from './redis/redis.module.js';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { HealthController } from './health/health.controller.js';
@@ -15,6 +16,7 @@ import { APP_GUARD } from '@nestjs/core';
   imports: [
     // CONFIG SERVICE
     ConfigModule.forRoot({ isGlobal: true }),
+    RedisModule,
 
     // TYPEORM CONFIG
     TypeOrmModule.forRootAsync({

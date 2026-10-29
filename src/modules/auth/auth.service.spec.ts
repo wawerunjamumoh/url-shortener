@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { compare } from 'bcryptjs';
 import { AuthService } from './auth.service.js';
 import { User } from './entities/user.entity.js';
+import { RedisService } from '../../redis/redis.service.js';
 
 describe('AuthService', () => {
     const user = {
@@ -38,6 +39,11 @@ describe('AuthService', () => {
         getOrThrow: vi.fn(() => 'different-long-refresh-secret-123456'),
         get: vi.fn(() => '7d'),
     };
+    const redis = {
+        getJson: vi.fn(),
+        setJson: vi.fn(),
+        delete: vi.fn(),
+    };
 
     let service: AuthService;
 
@@ -48,6 +54,7 @@ describe('AuthService', () => {
         service = new AuthService(
             repository as unknown as Repository<User>,
             jwtService as unknown as JwtService,
+            redis as unknown as RedisService,
             config as unknown as ConfigService,
         );
     });
@@ -105,4 +112,26 @@ describe('AuthService', () => {
             UnauthorizedException,
         );
     }, 30_000);
+
+    it('caches only the public profile for 60 seconds', async () => {
+        redis.getJson.mockResolvedValue(null);
+        repository.findOne.mockResolvedValue(user);
+
+        const profile = await service.getProfile(user.userId);
+
+        expect(profile).toEqual({
+            userId: user.userId,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            joinedAt: user.joinedAt,
+        });
+        expect(redis.setJson).toHaveBeenCalledWith(
+            `users:profile:${user.userId}`,
+            profile,
+            60,
+        );
+        expect(profile).not.toHaveProperty('passwordHash');
+        expect(profile).not.toHaveProperty('refreshTokenHash');
+    });
 });

@@ -9,7 +9,7 @@ import {
   Redirect,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { Throttle,SkipThrottle } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { UrlsService } from './urls.service.js';
 import { CreateUrlDto } from './dto/create-url.dto.js';
 import { UpdateUrlDto } from './dto/update-url.dto.js';
@@ -20,9 +20,16 @@ export class UrlsController {
 
 
   @Post('new')
-  @Throttle({default: {limit:5, ttl: 60_000}})
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async createShortUrl(@Body() createUrlDto: CreateUrlDto) {
     return this.urlsService.createShortCode(createUrlDto);
+  }
+
+  // Keep this fixed route before ':shortCode' so it is matched as an endpoint,
+  // not treated as a short code by the redirect handler below.
+  @Get('most-accessed')
+  async findMostAccessedUrls() {
+    return this.urlsService.findMostAccessed();
   }
 
   @Get(':shortCode')

@@ -1,0 +1,33 @@
+services:
+  redis:
+    # Pin a major/minor image line for repeatable local development.
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command:
+      # Enable AOF persistence locally and require a password for connections.
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --requirepass
+      - ${REDIS_PASSWORD:?Set REDIS_PASSWORD in your .env file}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in your .env file}
+    ports:
+      # Never expose the local Redis port to the network.
+      - '127.0.0.1:6379:6379'
+    volumes:
+      # Preserve local Redis data across container recreation.
+      - redis_data:/data
+    healthcheck:
+      # Compose reports healthy only after Redis accepts authenticated commands.
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  # Named volume keeps local development data until explicitly removed.
+  redis_data:

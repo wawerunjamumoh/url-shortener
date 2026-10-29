@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { UrlsService } from './urls.service.js';
 import { Url } from './entities/url.entity.js';
+import { RedisService } from '../../redis/redis.service.js';
 
 describe('UrlsService', () => {
   let service: UrlsService;
@@ -11,13 +12,25 @@ describe('UrlsService', () => {
     save: vi.fn(),
     remove: vi.fn(),
   };
+  const redis = {
+    getJson: vi.fn(),
+    setJson: vi.fn(),
+    delete: vi.fn(),
+    recordUrlAccess: vi.fn(),
+    getMostAccessedUrlCodes: vi.fn(),
+  };
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    redis.getJson.mockResolvedValue(null);
+    redis.setJson.mockResolvedValue(undefined);
+    redis.delete.mockResolvedValue(undefined);
+    redis.recordUrlAccess.mockResolvedValue(undefined);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UrlsService,
         { provide: getRepositoryToken(Url), useValue: urlRepository },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -40,6 +53,23 @@ describe('UrlsService', () => {
     expect(urlRepository.findOne).toHaveBeenCalledWith({
       where: { shortCode: 'abc12345' },
     });
+    expect(redis.setJson).toHaveBeenCalledWith(
+      'urls:destination:abc12345',
+      'https://example.com/path',
+      300,
+    );
+    expect(redis.recordUrlAccess).toHaveBeenCalledWith('abc12345');
+  });
+
+  it('serves a cached destination and counts the access without querying MySQL', async () => {
+    redis.getJson.mockResolvedValue('https://cached.example/path');
+    redis.recordUrlAccess.mockResolvedValue(undefined);
+
+    await expect(service.getDestination('hot-code')).resolves.toBe(
+      'https://cached.example/path',
+    );
+    expect(urlRepository.findOne).not.toHaveBeenCalled();
+    expect(redis.recordUrlAccess).toHaveBeenCalledWith('hot-code');
   });
 
   it('returns not found for an unknown short code', async () => {
@@ -71,6 +101,19 @@ describe('UrlsService', () => {
     });
   });
 
+  it('returns current URL rows in Redis popularity order', async () => {
+    redis.getMostAccessedUrlCodes.mockResolvedValue(['second', 'first']);
+    urlRepository.find.mockResolvedValue([
+      { shortCode: 'first', id: '1' },
+      { shortCode: 'second', id: '2' },
+    ]);
+
+    await expect(service.findMostAccessed()).resolves.toEqual([
+      { shortCode: 'second', id: '2' },
+      { shortCode: 'first', id: '1' },
+    ]);
+  });
+
   it('finds a URL by UUID', async () => {
     const url = { id: 'url-id', longUrl: 'https://example.com' };
     urlRepository.findOne.mockResolvedValue(url);
@@ -88,7 +131,11 @@ describe('UrlsService', () => {
   });
 
   it('updates and saves the destination URL', async () => {
-    const url = { id: 'url-id', longUrl: 'https://old.example' };
+    const url = {
+      id: 'url-id',
+      shortCode: 'abc12345',
+      longUrl: 'https://old.example',
+    };
     urlRepository.findOne.mockResolvedValue(url);
     urlRepository.save.mockImplementation(async (value) => value);
 
@@ -96,6 +143,7 @@ describe('UrlsService', () => {
       service.update('url-id', { longUrl: 'https://new.example/path' }),
     ).resolves.toMatchObject({ longUrl: 'https://new.example/path' });
     expect(urlRepository.save).toHaveBeenCalledWith(url);
+    expect(redis.delete).toHaveBeenCalledWith('urls:destination:abc12345');
   });
 
   it('rejects an empty update', async () => {
