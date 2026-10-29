@@ -25,6 +25,74 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## JWT authentication pattern
+
+This project keeps credentials and authentication in one feature module. For a
+new NestJS project, copy `src/modules/auth/` and register `AuthModule` in the
+root module. Change the profile fields in the `User` entity and `RegisterDto` to
+match that project's user model.
+
+### Responsibilities and request flow
+
+- `AuthModule` owns its `User` entity, repository, JWT setup, controller, service,
+  and guard. Other modules consume the exported `JwtAuthGuard`.
+- Registration normalizes the email, hashes the password with bcrypt, stores
+  only the hash, and issues tokens. The database unique constraint handles
+  concurrent duplicate registrations.
+- Login queries the password hash explicitly (it is excluded from normal entity
+  queries) and returns the same generic error for an unknown email or bad
+  password.
+- Access tokens are short-lived and signed with the access secret. The guard
+  verifies the signature, expiry, and `tokenType`, then sets `request.user`.
+- Refresh tokens use a different secret and longer expiry. The database stores
+  only a SHA-256 digest of the current high-entropy refresh token. Refresh
+  verifies the JWT, compares its digest in constant time, and rotates it; reusing
+  a rotated token fails. (Bcrypt is used for passwords, not JWTs, because bcrypt
+  truncates input beyond 72 bytes.)
+- Logout clears the stored refresh hash. Existing access tokens remain usable
+  until their short expiry; use a token-version/revocation store if immediate
+  access-token revocation is required.
+
+The baseline stores one refresh token per user, so a new login invalidates that
+user's previous refresh token. For multiple concurrent devices, use a separate
+session entity/table with one hashed refresh token per session, plus expiry and
+revocation fields.
+
+### Configure and run
+
+Copy `.env.example` to `.env`, set the database values, and replace both JWT
+secrets with different cryptographically random values of at least 32
+characters. Keep `.env` out of source control and use a secrets manager in
+production. The example values are placeholders, not production credentials.
+
+The access token defaults to 15 minutes and the refresh token to 7 days. All
+passwords must be at least 12 characters. Apply the entity changes with a
+database migration before deploying; leave `DB_SYNCHRONIZE=false` in production.
+
+### HTTP API
+
+All routes use the existing global `/api/v1` prefix.
+
+| Method | Route | Auth | Body / result |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/auth/register` | Public | `{ "firstName", "lastName", "email", "password" }` → token pair |
+| `POST` | `/api/v1/auth/login` | Public | `{ "email", "password" }` → token pair |
+| `POST` | `/api/v1/auth/refresh` | Public | `{ "refreshToken" }` → rotated token pair |
+| `POST` | `/api/v1/auth/logout` | Access token | Revokes the stored refresh token |
+| `GET` | `/api/v1/auth/me` | Access token | Current user's public profile |
+
+Send access tokens as `Authorization: Bearer <accessToken>`. In browser apps,
+prefer a Secure, HttpOnly, SameSite refresh-token cookie over local storage;
+add CSRF protection when using cookies. Do not log either token.
+
+### Protect another module's route
+
+Import `AuthModule` into the feature module (or a shared security module), then
+apply `@UseGuards(JwtAuthGuard)` to a controller or route. Inject the request
+with the `AuthenticatedRequest` type to read `request.user.userId`. Keep public
+routes unguarded. Use authorization checks in addition to authentication for
+resource ownership and roles.
+
 ## Project setup
 
 ```bash
